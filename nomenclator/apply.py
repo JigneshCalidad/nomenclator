@@ -1,9 +1,13 @@
 """Apply naming suggestions to codebase."""
 
 import json
+import logging
 import re
+import shlex
 from pathlib import Path
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class SuggestionApplier:
@@ -11,8 +15,16 @@ class SuggestionApplier:
 
     def __init__(self, scan_result_path: str):
         """Initialize with scan result file."""
-        with open(scan_result_path, "r", encoding="utf-8") as f:
-            self.scan_result = json.load(f)
+        scan_path = Path(scan_result_path)
+        if not scan_path.exists():
+            raise FileNotFoundError(f"Scan result file not found: {scan_result_path}")
+        
+        try:
+            with open(scan_path, "r", encoding="utf-8") as f:
+                self.scan_result = json.load(f)
+        except (OSError, IOError, json.JSONDecodeError) as e:
+            raise ValueError(f"Error reading scan result file: {e}") from e
+        
         self.rename_plan: List[Dict] = []
 
     def generate_plan(self) -> List[Dict]:
@@ -77,10 +89,15 @@ class SuggestionApplier:
             
             # Read file content
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                file_path_obj = Path(file_path)
+                if not file_path_obj.exists():
+                    output += f"    (File not found: {file_path})\n"
+                    continue
+                
+                with open(file_path_obj, "r", encoding="utf-8") as f:
                     content = f.read()
-            except Exception:
-                output += "    (Could not read file)\n"
+            except (OSError, IOError, UnicodeDecodeError) as e:
+                output += f"    (Could not read file: {e})\n"
                 continue
             
             lines = content.split("\n")
@@ -92,10 +109,16 @@ class SuggestionApplier:
                         old_line, item["old_name"], item["new_name"]
                     )
                     if old_line != new_line:
-                        output += f"    sed -i '' '{line_num + 1}s/{re.escape(item['old_name'])}/{item['new_name']}/' {file_path}\n"
-                        output += f"    # Or manually edit line {item['line']}:\n"
+                        # Use platform-agnostic approach - show manual edit instructions
+                        # Escape for shell safety
+                        escaped_file = shlex.quote(str(file_path))
+                        escaped_old = shlex.quote(item['old_name'])
+                        escaped_new = shlex.quote(item['new_name'])
+                        
+                        output += f"    # Manual edit for line {item['line']}:\n"
                         output += f"    # Old: {old_line.strip()}\n"
                         output += f"    # New: {new_line.strip()}\n"
+                        output += f"    # Python: Replace '{escaped_old}' with '{escaped_new}' in {escaped_file}\n"
         
         output += "\n" + "=" * 80 + "\n"
         output += f"Total: {len(plan)} rename operations across {len(by_file)} files\n"
@@ -113,8 +136,15 @@ class SuggestionApplier:
         pattern = r'\b' + re.escape(old_name) + r'\b'
         return re.sub(pattern, new_name, line)
 
-    def apply(self, dry_run: bool = True):
-        """Apply rename suggestions."""
+    def apply(self, dry_run: bool = True) -> Optional[str]:
+        """Apply rename suggestions.
+        
+        Args:
+            dry_run: If True, only show what would be changed. If False, apply changes.
+            
+        Returns:
+            Dry-run output string if dry_run is True, None otherwise
+        """
         if dry_run:
             return self.apply_dry_run()
         
@@ -130,20 +160,32 @@ class SuggestionApplier:
         
         # Apply changes to each file
         for file_path, items in by_file.items():
+            file_path_obj = Path(file_path)
+            if not file_path_obj.exists():
+                logger.warning(f"File not found, skipping: {file_path}")
+                continue
+            
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path_obj, "r", encoding="utf-8") as f:
                     content = f.read()
+                
+                original_content = content
                 
                 # Apply replacements
                 for item in items:
                     pattern = r'\b' + re.escape(item["old_name"]) + r'\b'
                     content = re.sub(pattern, item["new_name"], content)
                 
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                
-                print(f"Applied {len(items)} renames to {file_path}")
+                # Only write if content changed
+                if content != original_content:
+                    with open(file_path_obj, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    logger.info(f"Applied {len(items)} renames to {file_path}")
+                else:
+                    logger.warning(f"No changes made to {file_path} (names may not match)")
             
+            except (OSError, IOError, UnicodeDecodeError) as e:
+                logger.error(f"Error reading file {file_path}: {e}")
             except Exception as e:
-                print(f"Error applying changes to {file_path}: {e}")
+                logger.error(f"Unexpected error applying changes to {file_path}: {e}", exc_info=True)
 

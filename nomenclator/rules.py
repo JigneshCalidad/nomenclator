@@ -68,13 +68,18 @@ class RuleEngine:
         
         # Check prefix convention
         if prefix_rule:
-            if item.get("private", False) and not name.startswith(prefix_rule):
+            # Check if item should be private (starts with underscore) but doesn't have prefix
+            # or if it's marked as private but doesn't follow convention
+            is_private = item.get("private", False) or name.startswith("_")
+            if is_private and not name.startswith(prefix_rule):
                 violations.append({
                     "type": "missing_prefix",
                     "expected_prefix": prefix_rule,
                     "severity": "warning",
                 })
-                suggestions.append(prefix_rule + name)
+                # Only add prefix if not already present
+                if not name.startswith(prefix_rule):
+                    suggestions.append(prefix_rule + name.lstrip("_"))
         
         if violations:
             return {

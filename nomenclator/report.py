@@ -11,13 +11,21 @@ class ReportGenerator:
         """Initialize with scan results."""
         self.scan_result = scan_result
 
-    def generate_json(self, output_path: str):
-        """Generate JSON report."""
+    def generate_json(self, output_path: str) -> None:
+        """Generate JSON report.
+        
+        Args:
+            output_path: Path where JSON report will be written
+        """
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(self.scan_result, f, indent=2)
 
-    def generate_csv(self, output_path: str):
-        """Generate CSV report."""
+    def generate_csv(self, output_path: str) -> None:
+        """Generate CSV report.
+        
+        Args:
+            output_path: Path where CSV report will be written
+        """
         import csv
         
         items = self.scan_result.get("items", [])
@@ -58,8 +66,12 @@ class ReportGenerator:
                         "", "", "", "", suggestion
                     ])
 
-    def generate_html(self, output_path: str):
-        """Generate HTML report."""
+    def generate_html(self, output_path: str) -> None:
+        """Generate HTML report.
+        
+        Args:
+            output_path: Path where HTML report will be written
+        """
         items = self.scan_result.get("items", [])
         violations = [item for item in items if item.get("has_violations")]
         
@@ -265,8 +277,16 @@ class ReportGenerator:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
 
-    def generate(self, format_type: str, output_path: str):
-        """Generate report in specified format."""
+    def generate(self, format_type: str, output_path: str) -> None:
+        """Generate report in specified format.
+        
+        Args:
+            format_type: Format type ('json', 'html', or 'csv')
+            output_path: Path where report will be written
+            
+        Raises:
+            ValueError: If format_type is not supported
+        """
         if format_type == "json":
             self.generate_json(output_path)
         elif format_type == "html":
