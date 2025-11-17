@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Done", email = ""}
+    {name = "Done", email = "done@example.com"}
 ]
 keywords = ["naming", "conventions", "code-quality", "linting", "static-analysis"]
 classifiers = [

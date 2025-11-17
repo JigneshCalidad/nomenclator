@@ -6,9 +6,6 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-import yaml
-
-
 class Scanner:
     """Scans codebase for naming patterns and violations."""
 
@@ -91,6 +88,7 @@ class Scanner:
                 content = f.read()
             
             tree = ast.parse(content, filename=str(file_path))
+            self._attach_parents(tree)
             
             # Extract filename itself
             self.items.append({
@@ -111,7 +109,7 @@ class Scanner:
                         "line": node.lineno,
                         "language": "python",
                     })
-                elif isinstance(node, ast.FunctionDef):
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     is_private = node.name.startswith("_")
                     self.items.append({
                         "type": "function",
@@ -121,32 +119,9 @@ class Scanner:
                         "language": "python",
                         "private": is_private,
                     })
-                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                    # Variable assignment
-                    parent = getattr(node, "parent", None)
-                    if parent and not isinstance(parent, (ast.FunctionDef, ast.ClassDef)):
-                        # Module-level variable
-                        self.items.append({
-                            "type": "variable",
-                            "name": node.id,
-                            "file": str(file_path),
-                            "line": node.lineno,
-                            "language": "python",
-                        })
             
-            # Extract constants (UPPER_SNAKE_CASE at module level)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            if self._is_constant_name(target.id):
-                                self.items.append({
-                                    "type": "constant",
-                                    "name": target.id,
-                                    "file": str(file_path),
-                                    "line": node.lineno,
-                                    "language": "python",
-                                })
+            # Extract module-level assignments (variables/constants)
+            self._record_module_assignments(tree, file_path)
         
         except SyntaxError:
             # Skip files with syntax errors
@@ -250,4 +225,53 @@ class Scanner:
             "by_language": by_language,
             "languages": list(self.languages),
         }
+
+    def _record_module_assignments(self, tree: ast.AST, file_path: Path):
+        """Record module-level variable and constant assignments."""
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                if not self._is_module_scope(node):
+                    continue
+                
+                targets = []
+                if isinstance(node, ast.Assign):
+                    targets = node.targets
+                else:
+                    targets = [node.target]
+                
+                for target in targets:
+                    for name in self._iter_target_names(target):
+                        entry_type = "constant" if self._is_constant_name(name) else "variable"
+                        self.items.append({
+                            "type": entry_type,
+                            "name": name,
+                            "file": str(file_path),
+                            "line": node.lineno,
+                            "language": "python",
+                        })
+
+    def _iter_target_names(self, target: ast.AST):
+        """Yield variable names from assignment targets."""
+        if isinstance(target, ast.Name):
+            yield target.id
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for elt in target.elts:
+                yield from self._iter_target_names(elt)
+
+    def _attach_parents(self, tree: ast.AST):
+        """Annotate AST nodes with parent references."""
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                setattr(child, "parent", parent)
+
+    def _is_module_scope(self, node: ast.AST) -> bool:
+        """Return True if node lives directly in module scope."""
+        current = getattr(node, "parent", None)
+        while current is not None:
+            if isinstance(current, ast.Module):
+                return True
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                return False
+            current = getattr(current, "parent", None)
+        return isinstance(node, ast.Module)
 

@@ -32,12 +32,13 @@ class RuleEngine:
         language = item.get("language")
         item_type = item.get("type")
         name = item.get("name")
+        is_private = item.get("private", False)
         
         if not all([language, item_type, name]):
             return {"compliant": True}
         
         # Get rules for this language and type
-        convention = self._get_convention(language, item_type)
+        convention = self._get_convention(language, item_type, is_private=is_private)
         if not convention:
             return {"compliant": True}
         
@@ -85,7 +86,7 @@ class RuleEngine:
         
         return {"compliant": True}
 
-    def _get_convention(self, language: str, item_type: str) -> Optional[Dict]:
+    def _get_convention(self, language: str, item_type: str, is_private: bool = False) -> Optional[Dict]:
         """Get convention rules for language and type."""
         conventions = self.rules.get("conventions", {})
         lang_rules = conventions.get(language, {})
@@ -101,7 +102,15 @@ class RuleEngine:
         }
         
         rule_key = type_map.get(item_type)
-        return lang_rules.get(rule_key) if rule_key else None
+        base_rules = lang_rules.get(rule_key, {}) if rule_key else {}
+        merged_rules = dict(base_rules) if base_rules else {}
+        
+        if is_private:
+            private_rules = lang_rules.get("private", {})
+            for key, value in private_rules.items():
+                merged_rules.setdefault(key, value)
+        
+        return merged_rules or None
 
     def _detect_case(self, name: str) -> str:
         """Detect the naming case of a string."""

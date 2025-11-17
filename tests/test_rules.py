@@ -99,3 +99,35 @@ def test_check_python_compliant(rule_engine):
     result = rule_engine.check_item(item)
     assert result["compliant"]
 
+
+def test_private_function_requires_prefix(rule_engine):
+    """Private functions should enforce the configured prefix."""
+    item = {
+        "type": "function",
+        "name": "internal_helper",
+        "language": "python",
+        "file": "test.py",
+        "line": 1,
+        "private": True,
+    }
+    
+    result = rule_engine.check_item(item)
+    assert not result["compliant"]
+    assert any(v["type"] == "missing_prefix" for v in result["violations"])
+    assert result["suggestions"][0].startswith("_")
+
+
+def test_private_function_with_prefix_is_compliant(rule_engine):
+    """Private functions that already use the prefix should pass."""
+    item = {
+        "type": "function",
+        "name": "_internal_helper",
+        "language": "python",
+        "file": "test.py",
+        "line": 1,
+        "private": True,
+    }
+    
+    result = rule_engine.check_item(item)
+    assert result["compliant"]
+

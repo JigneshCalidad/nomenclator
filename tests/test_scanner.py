@@ -99,3 +99,33 @@ def test_scan_nonexistent_path(scanner):
     with pytest.raises(ValueError):
         scanner.scan("/nonexistent/path/12345")
 
+
+def test_scan_python_detects_module_variables(scanner, tmp_path):
+    """Ensure module-level variables and constants are detected correctly."""
+    file_path = tmp_path / "module_vars.py"
+    file_path.write_text(
+        "VALUE = 42\n"
+        "user_name = 'done'\n"
+        "x, y = (1, 2)\n"
+        "\n"
+        "class Inner:\n"
+        "    CLASS_SETTING = 'skip'\n"
+        "\n"
+        "def helper():\n"
+        "    local_value = 10\n"
+    )
+    
+    result = scanner.scan(str(file_path))
+    module_items = [
+        item for item in result["items"]
+        if item["type"] in {"variable", "constant"} and item["file"] == str(file_path)
+    ]
+    
+    names = {item["name"]: item["type"] for item in module_items}
+    
+    assert names["VALUE"] == "constant"
+    assert names["user_name"] == "variable"
+    assert names["x"] == "variable" and names["y"] == "variable"
+    assert "CLASS_SETTING" not in names  # class attributes should be ignored
+    assert "local_value" not in names  # function locals should be ignored
+
