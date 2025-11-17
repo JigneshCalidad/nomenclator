@@ -1,0 +1,80 @@
+# Nomenclator Naming Rules Configuration
+# Define conventions for different code elements
+
+conventions:
+  # Python conventions
+  python:
+    modules:
+      case: snake_case
+      description: "Python module names should be lowercase with underscores"
+    
+    classes:
+      case: PascalCase
+      description: "Python class names should be PascalCase"
+    
+    functions:
+      case: snake_case
+      description: "Python function names should be lowercase with underscores"
+    
+    variables:
+      case: snake_case
+      description: "Python variable names should be lowercase with underscores"
+    
+    constants:
+      case: UPPER_SNAKE_CASE
+      description: "Python constants should be UPPER_SNAKE_CASE"
+    
+    private:
+      prefix: "_"
+      description: "Private attributes/methods should start with underscore"
+
+  # JavaScript conventions
+  javascript:
+    files:
+      case: kebab-case
+      description: "JS file names should be kebab-case"
+    
+    classes:
+      case: PascalCase
+      description: "JS class names should be PascalCase"
+    
+    functions:
+      case: camelCase
+      description: "JS function names should be camelCase"
+    
+    variables:
+      case: camelCase
+      description: "JS variable names should be camelCase"
+    
+    constants:
+      case: UPPER_SNAKE_CASE
+      description: "JS constants should be UPPER_SNAKE_CASE"
+
+  # Markdown conventions
+  markdown:
+    files:
+      case: UPPER_SNAKE_CASE
+      allowed_exceptions: ["README.md", "CHANGELOG.md", "LICENSE"]
+      description: "Markdown files should be UPPER_SNAKE_CASE except common exceptions"
+
+  # YAML conventions
+  yaml:
+    files:
+      case: kebab-case
+      allowed_exceptions: ["rules.yaml"]
+      description: "YAML config files should be kebab-case"
+
+# Violation thresholds
+violations:
+  severity_levels:
+    error: "Names that clearly violate conventions (e.g., PascalCase function in Python)"
+    warning: "Names that might be acceptable but inconsistent"
+    info: "Suggestions for improvement"
+
+# Reporting options
+reporting:
+  include_suggestions: true
+  include_examples: true
+  group_by_file: true
+  group_by_violation_type: true
+
