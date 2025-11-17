@@ -1,9 +1,12 @@
 """Rule engine for checking naming conventions."""
 
+import logging
 import re
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 class RuleEngine:
@@ -18,9 +21,17 @@ class RuleEngine:
         """Load rules from YAML file."""
         try:
             with open(self.rules_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
+                rules = yaml.safe_load(f)
+                return rules if rules is not None else {}
         except FileNotFoundError:
+            logger.warning(f"Rules file not found: {self.rules_path}. Using empty rules.")
             return {}
+        except yaml.YAMLError as e:
+            logger.error(f"Error parsing YAML rules file {self.rules_path}: {e}")
+            raise ValueError(f"Invalid YAML in rules file: {e}")
+        except (PermissionError, OSError) as e:
+            logger.error(f"Error reading rules file {self.rules_path}: {e}")
+            raise IOError(f"Error reading rules file: {e}")
 
     def check_item(self, item: Dict) -> Dict:
         """

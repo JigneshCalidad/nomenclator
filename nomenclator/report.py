@@ -1,5 +1,6 @@
 """Report generation for nomenclator."""
 
+import html
 import json
 from typing import Dict, List, Optional
 
@@ -13,8 +14,11 @@ class ReportGenerator:
 
     def generate_json(self, output_path: str):
         """Generate JSON report."""
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(self.scan_result, f, indent=2)
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(self.scan_result, f, indent=2)
+        except (PermissionError, OSError) as e:
+            raise IOError(f"Error writing JSON report to {output_path}: {e}")
 
     def generate_csv(self, output_path: str):
         """Generate CSV report."""
@@ -23,40 +27,43 @@ class ReportGenerator:
         items = self.scan_result.get("items", [])
         violations = [item for item in items if item.get("has_violations")]
         
-        with open(output_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "File", "Line", "Type", "Language", "Name",
-                "Violation Type", "Severity", "Expected", "Actual", "Suggestion"
-            ])
-            
-            for item in violations:
-                file_path = item.get("file", "")
-                line = item.get("line", 0)
-                item_type = item.get("type", "")
-                language = item.get("language", "")
-                name = item.get("name", "")
+        try:
+            with open(output_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "File", "Line", "Type", "Language", "Name",
+                    "Violation Type", "Severity", "Expected", "Actual", "Suggestion"
+                ])
                 
-                violations_list = item.get("violations", [])
-                suggestions = item.get("suggestions", [])
-                suggestion = suggestions[0] if suggestions else ""
-                
-                if violations_list:
-                    for violation in violations_list:
-                        violation_type = violation.get("type", "")
-                        severity = violation.get("severity", "")
-                        expected = violation.get("expected", "")
-                        actual = violation.get("actual", "")
-                        
+                for item in violations:
+                    file_path = item.get("file", "")
+                    line = item.get("line", 0)
+                    item_type = item.get("type", "")
+                    language = item.get("language", "")
+                    name = item.get("name", "")
+                    
+                    violations_list = item.get("violations", [])
+                    suggestions = item.get("suggestions", [])
+                    suggestion = suggestions[0] if suggestions else ""
+                    
+                    if violations_list:
+                        for violation in violations_list:
+                            violation_type = violation.get("type", "")
+                            severity = violation.get("severity", "")
+                            expected = violation.get("expected", "")
+                            actual = violation.get("actual", "")
+                            
+                            writer.writerow([
+                                file_path, line, item_type, language, name,
+                                violation_type, severity, expected, actual, suggestion
+                            ])
+                    else:
                         writer.writerow([
                             file_path, line, item_type, language, name,
-                            violation_type, severity, expected, actual, suggestion
+                            "", "", "", "", suggestion
                         ])
-                else:
-                    writer.writerow([
-                        file_path, line, item_type, language, name,
-                        "", "", "", "", suggestion
-                    ])
+        except (PermissionError, OSError) as e:
+            raise IOError(f"Error writing CSV report to {output_path}: {e}")
 
     def generate_html(self, output_path: str):
         """Generate HTML report."""
@@ -184,7 +191,7 @@ class ReportGenerator:
 <body>
     <div class="header">
         <h1>📋 Nomenclator Report</h1>
-        <p class="file-path">Scanned: {self.scan_result.get('path', 'N/A')}</p>
+        <p class="file-path">Scanned: {html.escape(str(self.scan_result.get('path', 'N/A')))}</p>
         
         <div class="stats">
             <div class="stat-card">
@@ -226,21 +233,27 @@ class ReportGenerator:
                 severities = [v.get("severity", "info") for v in violations_list]
                 highest_severity = "error" if "error" in severities else ("warning" if "warning" in severities else "info")
                 
+                # Escape HTML to prevent XSS
+                name_escaped = html.escape(name)
+                file_path_escaped = html.escape(file_path)
+                item_type_escaped = html.escape(item_type)
+                language_escaped = html.escape(language)
+                
                 html += f'<div class="violation-item {highest_severity}">'
                 html += f'<div class="violation-header">'
                 html += f'<div>'
-                html += f'<div class="violation-name">{name}</div>'
-                html += f'<div class="violation-type">{item_type} in {language}</div>'
+                html += f'<div class="violation-name">{name_escaped}</div>'
+                html += f'<div class="violation-type">{item_type_escaped} in {language_escaped}</div>'
                 html += f'</div>'
-                html += f'<div class="file-path">{file_path}:{line}</div>'
+                html += f'<div class="file-path">{file_path_escaped}:{line}</div>'
                 html += f'</div>'
                 
                 html += '<div class="violation-details">'
                 for violation in violations_list:
-                    violation_type = violation.get("type", "")
-                    severity = violation.get("severity", "")
-                    expected = violation.get("expected", "")
-                    actual = violation.get("actual", "")
+                    violation_type = html.escape(violation.get("type", ""))
+                    severity = html.escape(violation.get("severity", ""))
+                    expected = html.escape(violation.get("expected", ""))
+                    actual = html.escape(violation.get("actual", ""))
                     
                     html += f'<div class="violation-detail">'
                     html += f'<span class="severity-{severity}"><strong>{severity.upper()}</strong></span>: '
@@ -248,7 +261,7 @@ class ReportGenerator:
                     html += f'</div>'
                 
                 if suggestions:
-                    suggestion = suggestions[0]
+                    suggestion = html.escape(suggestions[0])
                     html += f'<div class="suggestion">'
                     html += f'<span class="suggestion-label">💡 Suggestion:</span> <code>{suggestion}</code>'
                     html += f'</div>'
@@ -262,8 +275,11 @@ class ReportGenerator:
 </html>
 """
         
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(html)
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(html)
+        except (PermissionError, OSError) as e:
+            raise IOError(f"Error writing HTML report to {output_path}: {e}")
 
     def generate(self, format_type: str, output_path: str):
         """Generate report in specified format."""

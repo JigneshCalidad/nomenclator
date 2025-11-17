@@ -1,10 +1,17 @@
 """CLI interface for nomenclator."""
 
 import json
+import logging
 import sys
 from pathlib import Path
 
 import click
+
+# Configure logging
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(levelname)s: %(message)s'
+)
 
 try:
     from nomenclator.core import Scanner
@@ -35,25 +42,36 @@ def scan(path: str, out: str, rules: str):
     """Scan a directory or file for naming patterns."""
     click.echo(f"Scanning {path}...")
     
-    scanner = Scanner(rules_path=rules)
-    scan_result = scanner.scan(path)
-    
-    # Apply rules
-    rule_engine = RuleEngine(rules_path=rules)
-    scan_result = rule_engine.analyze_scan(scan_result)
-    
-    # Save results
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(scan_result, f, indent=2)
-    
-    stats = scan_result.get("violation_statistics", {})
-    scan_stats = scan_result.get("statistics", {})
-    
-    click.echo(f"✓ Scanned {scan_stats.get('total_items', 0)} items")
-    click.echo(f"✓ Found {stats.get('total', 0)} violations")
-    click.echo(f"  - Errors: {stats.get('by_severity', {}).get('error', 0)}")
-    click.echo(f"  - Warnings: {stats.get('by_severity', {}).get('warning', 0)}")
-    click.echo(f"✓ Results saved to {out}")
+    try:
+        scanner = Scanner(rules_path=rules)
+        scan_result = scanner.scan(path)
+        
+        # Apply rules
+        rule_engine = RuleEngine(rules_path=rules)
+        scan_result = rule_engine.analyze_scan(scan_result)
+        
+        # Save results
+        try:
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(scan_result, f, indent=2)
+        except (PermissionError, OSError) as e:
+            click.echo(f"Error: Could not write to {out}: {e}", err=True)
+            sys.exit(1)
+        
+        stats = scan_result.get("violation_statistics", {})
+        scan_stats = scan_result.get("statistics", {})
+        
+        click.echo(f"✓ Scanned {scan_stats.get('total_items', 0)} items")
+        click.echo(f"✓ Found {stats.get('total', 0)} violations")
+        click.echo(f"  - Errors: {stats.get('by_severity', {}).get('error', 0)}")
+        click.echo(f"  - Warnings: {stats.get('by_severity', {}).get('warning', 0)}")
+        click.echo(f"✓ Results saved to {out}")
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command()
@@ -73,12 +91,24 @@ def report(format: str, input_file: str, out: str):
     except FileNotFoundError:
         click.echo(f"Error: {input_file} not found. Run 'nomenclator scan' first.", err=True)
         sys.exit(1)
+    except json.JSONDecodeError as e:
+        click.echo(f"Error: Invalid JSON in {input_file}: {e}", err=True)
+        sys.exit(1)
+    except (PermissionError, OSError) as e:
+        click.echo(f"Error: Could not read {input_file}: {e}", err=True)
+        sys.exit(1)
     
     # Generate report
-    generator = ReportGenerator(scan_result)
-    generator.generate(format, out)
-    
-    click.echo(f"✓ Report generated: {out}")
+    try:
+        generator = ReportGenerator(scan_result)
+        generator.generate(format, out)
+        click.echo(f"✓ Report generated: {out}")
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except (PermissionError, OSError) as e:
+        click.echo(f"Error: Could not write report to {out}: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command()
@@ -92,16 +122,23 @@ def apply_suggestions(input_file: str, dry_run: bool, out: str):
     except FileNotFoundError:
         click.echo(f"Error: {input_file} not found. Run 'nomenclator scan' first.", err=True)
         sys.exit(1)
+    except (ValueError, IOError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
     
-    if dry_run:
-        click.echo("Generating dry-run plan...")
-        plan_output = applier.apply_dry_run(out)
-        if not out:
-            click.echo(plan_output)
-    else:
-        click.echo("Applying suggestions...")
-        applier.apply(dry_run=False)
-        click.echo("✓ Suggestions applied")
+    try:
+        if dry_run:
+            click.echo("Generating dry-run plan...")
+            plan_output = applier.apply_dry_run(out)
+            if not out:
+                click.echo(plan_output)
+        else:
+            click.echo("Applying suggestions...")
+            applier.apply(dry_run=False)
+            click.echo("✓ Suggestions applied")
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

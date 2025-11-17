@@ -1,12 +1,14 @@
 """Core scanning functionality for nomenclator."""
 
 import ast
-import os
+import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 class Scanner:
@@ -51,16 +53,16 @@ class Scanner:
                 ".pytest_cache", ".mypy_cache", "dist", "build", ".eggs"
             }
         
-        for root, dirs, files in os.walk(directory):
-            # Filter ignored directories
-            dirs[:] = [d for d in dirs if d not in ignore_patterns]
-            
-            root_path = Path(root)
-            
-            for file in files:
-                file_path = root_path / file
-                if self._should_scan(file_path):
+        try:
+            for file_path in directory.rglob("*"):
+                # Skip ignored directories
+                if any(ignore_pattern in file_path.parts for ignore_pattern in ignore_patterns):
+                    continue
+                
+                if file_path.is_file() and self._should_scan(file_path):
                     self._scan_file(file_path)
+        except (PermissionError, OSError) as e:
+            logger.warning(f"Error accessing directory {directory}: {e}")
 
     def _should_scan(self, file_path: Path) -> bool:
         """Check if file should be scanned based on extension."""
@@ -102,58 +104,81 @@ class Scanner:
             })
             
             # Walk AST to find classes, functions, variables
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    self.items.append({
+            # Use a visitor to track parent nodes for proper variable detection
+            class VariableVisitor(ast.NodeVisitor):
+                def __init__(self, scanner_instance, file_path):
+                    self.scanner = scanner_instance
+                    self.file_path = file_path
+                    self.current_parent = None
+                
+                def visit_ClassDef(self, node):
+                    self.scanner.items.append({
                         "type": "class",
                         "name": node.name,
-                        "file": str(file_path),
+                        "file": str(self.file_path),
                         "line": node.lineno,
                         "language": "python",
                     })
-                elif isinstance(node, ast.FunctionDef):
+                    old_parent = self.current_parent
+                    self.current_parent = node
+                    self.generic_visit(node)
+                    self.current_parent = old_parent
+                
+                def visit_FunctionDef(self, node):
                     is_private = node.name.startswith("_")
-                    self.items.append({
+                    self.scanner.items.append({
                         "type": "function",
                         "name": node.name,
-                        "file": str(file_path),
+                        "file": str(self.file_path),
                         "line": node.lineno,
                         "language": "python",
                         "private": is_private,
                     })
-                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                    # Variable assignment
-                    parent = getattr(node, "parent", None)
-                    if parent and not isinstance(parent, (ast.FunctionDef, ast.ClassDef)):
-                        # Module-level variable
-                        self.items.append({
-                            "type": "variable",
-                            "name": node.id,
-                            "file": str(file_path),
-                            "line": node.lineno,
-                            "language": "python",
-                        })
-            
-            # Extract constants (UPPER_SNAKE_CASE at module level)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign):
+                    old_parent = self.current_parent
+                    self.current_parent = node
+                    self.generic_visit(node)
+                    self.current_parent = old_parent
+                
+                def visit_Assign(self, node):
+                    # Check if this is a module-level assignment (not inside function/class)
                     for target in node.targets:
                         if isinstance(target, ast.Name):
-                            if self._is_constant_name(target.id):
-                                self.items.append({
-                                    "type": "constant",
-                                    "name": target.id,
-                                    "file": str(file_path),
-                                    "line": node.lineno,
-                                    "language": "python",
-                                })
+                            if self.current_parent is None:
+                                # Module-level variable
+                                if self._is_constant_name(target.id):
+                                    self.scanner.items.append({
+                                        "type": "constant",
+                                        "name": target.id,
+                                        "file": str(self.file_path),
+                                        "line": node.lineno,
+                                        "language": "python",
+                                    })
+                                else:
+                                    self.scanner.items.append({
+                                        "type": "variable",
+                                        "name": target.id,
+                                        "file": str(self.file_path),
+                                        "line": node.lineno,
+                                        "language": "python",
+                                    })
+                    self.generic_visit(node)
+                
+                def _is_constant_name(self, name: str) -> bool:
+                    """Check if name looks like a constant (UPPER_SNAKE_CASE)."""
+                    return name.isupper() and ("_" in name or name.isalpha())
+            
+            visitor = VariableVisitor(self, file_path)
+            visitor.visit(tree)
         
-        except SyntaxError:
+        except SyntaxError as e:
             # Skip files with syntax errors
-            pass
-        except Exception as e:
+            logger.debug(f"Syntax error in {file_path}: {e}")
+        except (UnicodeDecodeError, PermissionError, OSError) as e:
             # Log error but continue
-            print(f"Error scanning {file_path}: {e}")
+            logger.warning(f"Error scanning {file_path}: {e}")
+        except Exception as e:
+            # Catch-all for unexpected errors
+            logger.error(f"Unexpected error scanning {file_path}: {e}", exc_info=True)
 
     def _scan_javascript(self, file_path: Path):
         """Scan JavaScript file using heuristics."""
@@ -205,8 +230,10 @@ class Scanner:
                     "language": "javascript",
                 })
         
+        except (UnicodeDecodeError, PermissionError, OSError) as e:
+            logger.warning(f"Error scanning {file_path}: {e}")
         except Exception as e:
-            print(f"Error scanning {file_path}: {e}")
+            logger.error(f"Unexpected error scanning {file_path}: {e}", exc_info=True)
 
     def _scan_yaml(self, file_path: Path):
         """Scan YAML file."""
