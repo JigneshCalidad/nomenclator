@@ -35,6 +35,18 @@ def test_detect_case_upper_snake_case(rule_engine):
     assert rule_engine._detect_case("MIN_TEMP") == "UPPER_SNAKE_CASE"
 
 
+def test_detect_case_handles_extensions(rule_engine):
+    """Detect case even when file extensions are present."""
+    assert rule_engine._detect_case("README.md") == "UPPER_SNAKE_CASE"
+    assert rule_engine._detect_case("user_profile.md") == "snake_case"
+    assert rule_engine._detect_case("naming-report.md") == "kebab-case"
+
+
+def test_detect_case_empty_string(rule_engine):
+    """Empty names should not raise errors."""
+    assert rule_engine._detect_case("") == "unknown"
+
+
 def test_to_snake_case(rule_engine):
     """Test conversion to snake_case."""
     assert rule_engine._to_snake_case("UserName") == "user_name"
@@ -96,6 +108,20 @@ def test_check_python_compliant(rule_engine):
         "line": 1,
     }
     
+    result = rule_engine.check_item(item)
+    assert result["compliant"]
+
+
+def test_allowed_exceptions_for_markdown(rule_engine):
+    """Allowed markdown filenames should be skipped."""
+    item = {
+        "type": "file",
+        "name": "README.md",
+        "language": "markdown",
+        "file": "README.md",
+        "line": 1,
+    }
+
     result = rule_engine.check_item(item)
     assert result["compliant"]
 

@@ -6,9 +6,6 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-import yaml
-
-
 class Scanner:
     """Scans codebase for naming patterns and violations."""
 
@@ -91,6 +88,7 @@ class Scanner:
                 content = f.read()
             
             tree = ast.parse(content, filename=str(file_path))
+            self._attach_parents(tree)
             
             # Extract filename itself
             self.items.append({
@@ -101,7 +99,7 @@ class Scanner:
                 "language": "python",
             })
             
-            # Walk AST to find classes, functions, variables
+            # Walk AST to find classes, functions, variables, and constants
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
                     self.items.append({
@@ -121,32 +119,10 @@ class Scanner:
                         "language": "python",
                         "private": is_private,
                     })
-                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                    # Variable assignment
-                    parent = getattr(node, "parent", None)
-                    if parent and not isinstance(parent, (ast.FunctionDef, ast.ClassDef)):
-                        # Module-level variable
-                        self.items.append({
-                            "type": "variable",
-                            "name": node.id,
-                            "file": str(file_path),
-                            "line": node.lineno,
-                            "language": "python",
-                        })
-            
-            # Extract constants (UPPER_SNAKE_CASE at module level)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            if self._is_constant_name(target.id):
-                                self.items.append({
-                                    "type": "constant",
-                                    "name": target.id,
-                                    "file": str(file_path),
-                                    "line": node.lineno,
-                                    "language": "python",
-                                })
+                elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    if self._is_module_scope(node):
+                        for target_name in self._iter_assignment_targets(node):
+                            self._record_module_binding(target_name, file_path, node.lineno)
         
         except SyntaxError:
             # Skip files with syntax errors
@@ -226,6 +202,55 @@ class Scanner:
             "file": str(file_path),
             "line": 1,
             "language": "markdown",
+        })
+
+    def _attach_parents(self, node: ast.AST):
+        """Annotate AST nodes with parent references."""
+        for child in ast.iter_child_nodes(node):
+            child.parent = node  # type: ignore[attr-defined]
+            self._attach_parents(child)
+
+    def _is_module_scope(self, node: ast.AST) -> bool:
+        """Return True if node is not nested inside a class or function definition."""
+        current = getattr(node, "parent", None)
+        while current is not None:
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                return False
+            current = getattr(current, "parent", None)
+        return True
+
+    def _iter_assignment_targets(self, node: ast.AST):
+        """Yield variable names assigned by the node."""
+        targets: List[ast.AST]
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target] if node.target is not None else []
+        else:
+            return
+        
+        for target in targets:
+            yield from self._flatten_assignment_target(target)
+
+    def _flatten_assignment_target(self, target: ast.AST):
+        """Yield names from nested assignment targets."""
+        if isinstance(target, ast.Name):
+            yield target.id
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                yield from self._flatten_assignment_target(element)
+
+    def _record_module_binding(self, name: str, file_path: Path, line: int):
+        """Record a module-level variable or constant."""
+        if not name:
+            return
+        item_type = "constant" if self._is_constant_name(name) else "variable"
+        self.items.append({
+            "type": item_type,
+            "name": name,
+            "file": str(file_path),
+            "line": line,
+            "language": "python",
         })
 
     def _is_constant_name(self, name: str) -> bool:

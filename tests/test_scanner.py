@@ -44,6 +44,33 @@ class UserManager:
         Path(temp_path).unlink()
 
 
+def test_scan_python_module_variables(scanner):
+    """Module-level assignments should be captured as variables/constants."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write("""
+VALUE = 42
+user_count, threshold = 10, 5
+
+class Example:
+    def method(self):
+        inner_value = 99
+""")
+        temp_path = f.name
+
+    try:
+        result = scanner.scan(temp_path)
+
+        constants = [item["name"] for item in result["items"] if item["type"] == "constant"]
+        variables = [item["name"] for item in result["items"] if item["type"] == "variable"]
+
+        assert "VALUE" in constants
+        assert "user_count" in variables
+        assert "threshold" in variables
+        assert "inner_value" not in variables
+    finally:
+        Path(temp_path).unlink()
+
+
 def test_scan_javascript_file(scanner):
     """Test scanning a JavaScript file."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:

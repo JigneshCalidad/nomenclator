@@ -1,6 +1,7 @@
 """Rule engine for checking naming conventions."""
 
 import re
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
@@ -43,6 +44,12 @@ class RuleEngine:
         
         case_rule = convention.get("case")
         prefix_rule = convention.get("prefix")
+        allowed_exceptions = convention.get("allowed_exceptions", [])
+        
+        if allowed_exceptions:
+            file_name = Path(item.get("file", "")).name if item.get("file") else ""
+            if name in allowed_exceptions or (file_name and file_name in allowed_exceptions):
+                return {"compliant": True}
         
         violations = []
         suggestions = []
@@ -105,17 +112,32 @@ class RuleEngine:
 
     def _detect_case(self, name: str) -> str:
         """Detect the naming case of a string."""
-        if name.isupper() and ("_" in name or name.isalpha()):
+        if not name:
+            return "unknown"
+        
+        base_name = name.split(".", 1)[0] or name
+        token = base_name.strip()
+        if not token:
+            return "unknown"
+        
+        if token.isupper() and ("_" in token or token.isalpha()):
             return "UPPER_SNAKE_CASE"
-        elif name.islower() and "_" in name:
-            return "snake_case"
-        elif name.islower() and "-" in name:
-            return "kebab-case"
-        elif name[0].isupper() and "_" not in name and "-" not in name:
+        
+        if "_" in token:
+            snake_candidate = token.replace("_", "")
+            if snake_candidate and snake_candidate.islower():
+                return "snake_case"
+        
+        if "-" in token:
+            kebab_candidate = token.replace("-", "")
+            if kebab_candidate and kebab_candidate.islower():
+                return "kebab-case"
+        
+        if token[0].isupper() and "_" not in token and "-" not in token:
             return "PascalCase"
-        elif name[0].islower() and "_" not in name and "-" not in name:
+        elif token[0].islower() and "_" not in token and "-" not in token:
             # Check for camelCase (has uppercase letters inside)
-            if any(c.isupper() for c in name[1:]):
+            if any(c.isupper() for c in token[1:]):
                 return "camelCase"
             return "lowercase"
         else:
