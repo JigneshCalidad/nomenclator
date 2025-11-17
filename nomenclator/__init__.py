@@ -8,4 +8,3 @@ from nomenclator.report import ReportGenerator
 from nomenclator.apply import SuggestionApplier
 
 __all__ = ["Scanner", "RuleEngine", "ReportGenerator", "SuggestionApplier"]
-

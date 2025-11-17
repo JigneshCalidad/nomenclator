@@ -64,7 +64,7 @@ def test_check_python_function(rule_engine):
         "file": "test.py",
         "line": 1,
     }
-    
+
     result = rule_engine.check_item(item)
     assert not result["compliant"]
     assert len(result["violations"]) > 0
@@ -80,7 +80,7 @@ def test_check_python_class(rule_engine):
         "file": "test.py",
         "line": 1,
     }
-    
+
     result = rule_engine.check_item(item)
     assert not result["compliant"]
     assert len(result["violations"]) > 0
@@ -95,7 +95,6 @@ def test_check_python_compliant(rule_engine):
         "file": "test.py",
         "line": 1,
     }
-    
+
     result = rule_engine.check_item(item)
     assert result["compliant"]
-

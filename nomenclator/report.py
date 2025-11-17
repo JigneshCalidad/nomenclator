@@ -1,7 +1,7 @@
 """Report generation for nomenclator."""
 
 import json
-from typing import Dict, List, Optional
+from typing import Dict
 
 
 class ReportGenerator:
@@ -9,6 +9,10 @@ class ReportGenerator:
 
     def __init__(self, scan_result: Dict):
         """Initialize with scan results."""
+        if not scan_result:
+            raise ValueError("Scan result cannot be empty")
+        if not isinstance(scan_result, dict):
+            raise TypeError("Scan result must be a dictionary")
         self.scan_result = scan_result
 
     def generate_json(self, output_path: str):
@@ -19,35 +23,35 @@ class ReportGenerator:
     def generate_csv(self, output_path: str):
         """Generate CSV report."""
         import csv
-        
+
         items = self.scan_result.get("items", [])
         violations = [item for item in items if item.get("has_violations")]
-        
+
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
                 "File", "Line", "Type", "Language", "Name",
                 "Violation Type", "Severity", "Expected", "Actual", "Suggestion"
             ])
-            
+
             for item in violations:
                 file_path = item.get("file", "")
                 line = item.get("line", 0)
                 item_type = item.get("type", "")
                 language = item.get("language", "")
                 name = item.get("name", "")
-                
+
                 violations_list = item.get("violations", [])
                 suggestions = item.get("suggestions", [])
                 suggestion = suggestions[0] if suggestions else ""
-                
+
                 if violations_list:
                     for violation in violations_list:
                         violation_type = violation.get("type", "")
                         severity = violation.get("severity", "")
                         expected = violation.get("expected", "")
                         actual = violation.get("actual", "")
-                        
+
                         writer.writerow([
                             file_path, line, item_type, language, name,
                             violation_type, severity, expected, actual, suggestion
@@ -62,10 +66,10 @@ class ReportGenerator:
         """Generate HTML report."""
         items = self.scan_result.get("items", [])
         violations = [item for item in items if item.get("has_violations")]
-        
+
         stats = self.scan_result.get("violation_statistics", {})
         scan_stats = self.scan_result.get("statistics", {})
-        
+
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -74,7 +78,8 @@ class ReportGenerator:
     <title>Nomenclator Report</title>
     <style>
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                         Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             line-height: 1.6;
             color: #333;
             max-width: 1200px;
@@ -185,18 +190,22 @@ class ReportGenerator:
     <div class="header">
         <h1>📋 Nomenclator Report</h1>
         <p class="file-path">Scanned: {self.scan_result.get('path', 'N/A')}</p>
-        
+
         <div class="stats">
             <div class="stat-card">
                 <div class="stat-value">{stats.get('total', 0)}</div>
                 <div class="stat-label">Total Violations</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value severity-error">{stats.get('by_severity', {}).get('error', 0)}</div>
+                <div class="stat-value severity-error">
+                    {stats.get('by_severity', {}).get('error', 0)}
+                </div>
                 <div class="stat-label">Errors</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value severity-warning">{stats.get('by_severity', {}).get('warning', 0)}</div>
+                <div class="stat-value severity-warning">
+                    {stats.get('by_severity', {}).get('warning', 0)}
+                </div>
                 <div class="stat-label">Warnings</div>
             </div>
             <div class="stat-card">
@@ -205,13 +214,17 @@ class ReportGenerator:
             </div>
         </div>
     </div>
-    
+
     <div class="violations">
         <h2>Violations</h2>
 """
-        
+
         if not violations:
-            html += '<div class="no-violations">✨ No violations found! Your codebase follows naming conventions.</div>'
+            html += (
+                '<div class="no-violations">'
+                '✨ No violations found! Your codebase follows naming conventions.'
+                '</div>'
+            )
         else:
             for item in violations:
                 name = item.get("name", "")
@@ -221,47 +234,62 @@ class ReportGenerator:
                 language = item.get("language", "")
                 violations_list = item.get("violations", [])
                 suggestions = item.get("suggestions", [])
-                
+
                 # Determine highest severity
                 severities = [v.get("severity", "info") for v in violations_list]
-                highest_severity = "error" if "error" in severities else ("warning" if "warning" in severities else "info")
-                
+                if "error" in severities:
+                    highest_severity = "error"
+                elif "warning" in severities:
+                    highest_severity = "warning"
+                else:
+                    highest_severity = "info"
+
                 html += f'<div class="violation-item {highest_severity}">'
-                html += f'<div class="violation-header">'
-                html += f'<div>'
+                html += '<div class="violation-header">'
+                html += '<div>'
                 html += f'<div class="violation-name">{name}</div>'
                 html += f'<div class="violation-type">{item_type} in {language}</div>'
-                html += f'</div>'
+                html += '</div>'
                 html += f'<div class="file-path">{file_path}:{line}</div>'
-                html += f'</div>'
-                
+                html += '</div>'
+
                 html += '<div class="violation-details">'
                 for violation in violations_list:
                     violation_type = violation.get("type", "")
                     severity = violation.get("severity", "")
                     expected = violation.get("expected", "")
                     actual = violation.get("actual", "")
-                    
-                    html += f'<div class="violation-detail">'
-                    html += f'<span class="severity-{severity}"><strong>{severity.upper()}</strong></span>: '
-                    html += f'{violation_type} - Expected {expected}, found {actual}'
-                    html += f'</div>'
-                
+
+                    html += '<div class="violation-detail">'
+                    severity_span = (
+                        f'<span class="severity-{severity}">'
+                        f'<strong>{severity.upper()}</strong></span>: '
+                    )
+                    html += severity_span
+                    html += (
+                        f'{violation_type} - Expected {expected}, '
+                        f'found {actual}'
+                    )
+                    html += '</div>'
+
                 if suggestions:
                     suggestion = suggestions[0]
-                    html += f'<div class="suggestion">'
-                    html += f'<span class="suggestion-label">💡 Suggestion:</span> <code>{suggestion}</code>'
-                    html += f'</div>'
-                
+                    html += '<div class="suggestion">'
+                    html += (
+                        '<span class="suggestion-label">💡 Suggestion:</span> '
+                        f'<code>{suggestion}</code>'
+                    )
+                    html += '</div>'
+
                 html += '</div>'
                 html += '</div>'
-        
+
         html += """
     </div>
 </body>
 </html>
 """
-        
+
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
 
@@ -275,4 +303,3 @@ class ReportGenerator:
             self.generate_csv(output_path)
         else:
             raise ValueError(f"Unsupported format: {format_type}")
-

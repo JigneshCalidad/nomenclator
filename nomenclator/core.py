@@ -4,9 +4,7 @@ import ast
 import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
-
-import yaml
+from typing import Dict, List, Optional, Set
 
 
 class Scanner:
@@ -21,22 +19,28 @@ class Scanner:
     def scan(self, path: str) -> Dict:
         """
         Scan a directory or file for naming patterns.
-        
+
         Returns:
             Dictionary with scan results including items and statistics
         """
+        if not path:
+            raise ValueError("Path cannot be empty")
+
         self.items = []
         self.languages = set()
-        
+
         path_obj = Path(path)
-        
+
+        if not path_obj.exists():
+            raise ValueError(f"Path does not exist: {path}")
+
         if path_obj.is_file():
             self._scan_file(path_obj)
         elif path_obj.is_dir():
             self._scan_directory(path_obj)
         else:
-            raise ValueError(f"Path does not exist: {path}")
-        
+            raise ValueError(f"Path is neither a file nor directory: {path}")
+
         return {
             "path": str(path),
             "items": self.items,
@@ -50,13 +54,13 @@ class Scanner:
                 "__pycache__", ".git", ".venv", "venv", "node_modules",
                 ".pytest_cache", ".mypy_cache", "dist", "build", ".eggs"
             }
-        
+
         for root, dirs, files in os.walk(directory):
             # Filter ignored directories
             dirs[:] = [d for d in dirs if d not in ignore_patterns]
-            
+
             root_path = Path(root)
-            
+
             for file in files:
                 file_path = root_path / file
                 if self._should_scan(file_path):
@@ -70,7 +74,7 @@ class Scanner:
     def _scan_file(self, file_path: Path):
         """Scan a single file for naming patterns."""
         extension = file_path.suffix
-        
+
         if extension == ".py":
             self._scan_python(file_path)
             self.languages.add("python")
@@ -89,9 +93,9 @@ class Scanner:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            
+
             tree = ast.parse(content, filename=str(file_path))
-            
+
             # Extract filename itself
             self.items.append({
                 "type": "module",
@@ -100,7 +104,7 @@ class Scanner:
                 "line": 1,
                 "language": "python",
             })
-            
+
             # Walk AST to find classes, functions, variables
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
@@ -133,7 +137,7 @@ class Scanner:
                             "line": node.lineno,
                             "language": "python",
                         })
-            
+
             # Extract constants (UPPER_SNAKE_CASE at module level)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Assign):
@@ -147,7 +151,7 @@ class Scanner:
                                     "line": node.lineno,
                                     "language": "python",
                                 })
-        
+
         except SyntaxError:
             # Skip files with syntax errors
             pass
@@ -160,7 +164,7 @@ class Scanner:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            
+
             # Extract filename
             self.items.append({
                 "type": "file",
@@ -169,7 +173,7 @@ class Scanner:
                 "line": 1,
                 "language": "javascript",
             })
-            
+
             # Extract class declarations
             class_pattern = r'class\s+(\w+)\s*'
             for match in re.finditer(class_pattern, content):
@@ -180,11 +184,17 @@ class Scanner:
                     "line": content[:match.start()].count("\n") + 1,
                     "language": "javascript",
                 })
-            
+
             # Extract function declarations (both function and arrow functions)
-            func_pattern = r'(?:function\s+(\w+)|const\s+(\w+)\s*=|let\s+(\w+)\s*=|var\s+(\w+)\s*=)\s*[=(]'
+            func_pattern = (
+                r'(?:function\s+(\w+)|const\s+(\w+)\s*=|'
+                r'let\s+(\w+)\s*=|var\s+(\w+)\s*=)\s*[=(]'
+            )
             for match in re.finditer(func_pattern, content):
-                name = match.group(1) or match.group(2) or match.group(3) or match.group(4)
+                name = (
+                    match.group(1) or match.group(2) or
+                    match.group(3) or match.group(4)
+                )
                 if name:
                     self.items.append({
                         "type": "function",
@@ -193,7 +203,7 @@ class Scanner:
                         "line": content[:match.start()].count("\n") + 1,
                         "language": "javascript",
                     })
-            
+
             # Extract constants (UPPER_SNAKE_CASE)
             const_pattern = r'const\s+([A-Z][A-Z_]+)\s*='
             for match in re.finditer(const_pattern, content):
@@ -204,7 +214,7 @@ class Scanner:
                     "line": content[:match.start()].count("\n") + 1,
                     "language": "javascript",
                 })
-        
+
         except Exception as e:
             print(f"Error scanning {file_path}: {e}")
 
@@ -230,24 +240,26 @@ class Scanner:
 
     def _is_constant_name(self, name: str) -> bool:
         """Check if name looks like a constant (UPPER_SNAKE_CASE)."""
-        return name.isupper() and ("_" in name or name.isalpha())
+        if not name:
+            return False
+        # Constants should be uppercase with optional underscores and digits
+        return name.isupper() and ("_" in name or name.replace("_", "").isalnum())
 
     def _compute_statistics(self) -> Dict:
         """Compute scan statistics."""
         by_type = {}
         by_language = {}
-        
+
         for item in self.items:
             item_type = item["type"]
             language = item["language"]
-            
+
             by_type[item_type] = by_type.get(item_type, 0) + 1
             by_language[language] = by_language.get(language, 0) + 1
-        
+
         return {
             "total_items": len(self.items),
             "by_type": by_type,
             "by_language": by_language,
             "languages": list(self.languages),
         }
-
