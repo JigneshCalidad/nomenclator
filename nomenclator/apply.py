@@ -1,9 +1,13 @@
 """Apply naming suggestions to codebase."""
 
 import json
+import logging
+import platform
 import re
 from pathlib import Path
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class SuggestionApplier:
@@ -11,8 +15,15 @@ class SuggestionApplier:
 
     def __init__(self, scan_result_path: str):
         """Initialize with scan result file."""
-        with open(scan_result_path, "r", encoding="utf-8") as f:
-            self.scan_result = json.load(f)
+        try:
+            with open(scan_result_path, "r", encoding="utf-8") as f:
+                self.scan_result = json.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Scan result file not found: {scan_result_path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in scan result file: {e}")
+        except (PermissionError, OSError) as e:
+            raise IOError(f"Error reading scan result file: {e}")
         self.rename_plan: List[Dict] = []
 
     def generate_plan(self) -> List[Dict]:
@@ -79,8 +90,9 @@ class SuggestionApplier:
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
-            except Exception:
-                output += "    (Could not read file)\n"
+            except (FileNotFoundError, PermissionError, OSError, UnicodeDecodeError) as e:
+                logger.warning(f"Could not read file {file_path}: {e}")
+                output += f"    (Could not read file: {e})\n"
                 continue
             
             lines = content.split("\n")
@@ -92,7 +104,12 @@ class SuggestionApplier:
                         old_line, item["old_name"], item["new_name"]
                     )
                     if old_line != new_line:
-                        output += f"    sed -i '' '{line_num + 1}s/{re.escape(item['old_name'])}/{item['new_name']}/' {file_path}\n"
+                        # Generate platform-agnostic sed command
+                        # macOS uses 'sed -i ''', Linux uses 'sed -i'
+                        sed_suffix = "''" if platform.system() == "Darwin" else ""
+                        escaped_old = re.escape(item['old_name'])
+                        escaped_new = re.escape(item['new_name'])
+                        output += f"    sed -i {sed_suffix} '{line_num + 1}s/{escaped_old}/{escaped_new}/' {file_path}\n"
                         output += f"    # Or manually edit line {item['line']}:\n"
                         output += f"    # Old: {old_line.strip()}\n"
                         output += f"    # New: {new_line.strip()}\n"
@@ -102,8 +119,12 @@ class SuggestionApplier:
         output += "=" * 80 + "\n"
         
         if output_path:
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(output)
+            try:
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(output)
+            except (PermissionError, OSError) as e:
+                logger.error(f"Error writing dry-run output to {output_path}: {e}")
+                raise
         
         return output
 
@@ -131,19 +152,28 @@ class SuggestionApplier:
         # Apply changes to each file
         for file_path, items in by_file.items():
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
+                # Read file
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                except (FileNotFoundError, PermissionError, OSError, UnicodeDecodeError) as e:
+                    logger.error(f"Error reading file {file_path}: {e}")
+                    continue
                 
                 # Apply replacements
                 for item in items:
                     pattern = r'\b' + re.escape(item["old_name"]) + r'\b'
                     content = re.sub(pattern, item["new_name"], content)
                 
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                
-                print(f"Applied {len(items)} renames to {file_path}")
+                # Write file
+                try:
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    logger.info(f"Applied {len(items)} renames to {file_path}")
+                except (PermissionError, OSError) as e:
+                    logger.error(f"Error writing file {file_path}: {e}")
+                    continue
             
             except Exception as e:
-                print(f"Error applying changes to {file_path}: {e}")
+                logger.error(f"Unexpected error applying changes to {file_path}: {e}", exc_info=True)
 
